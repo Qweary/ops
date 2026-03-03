@@ -487,21 +487,21 @@ foreach ($id in $toRun) {
         continue
     }
 
-    # Build argument list
-    $invokeArgs = @(
-        $oneLiner,
-        '-Obfuscate', $Obfuscate,
-        '-Persist', $s.Persist,
-        '-Trigger', ($s.Triggers -join ','),
-        '-InstanceCount', $s.Instances,
-        '-OutputFile', $outFile
-    )
+    # Build argument hashtable — hashtable splatting passes [string[]] directly, avoiding
+    # cross-process argument parsing which fails ValidateSet for multi-value trigger arrays.
+    $invokeArgs = @{
+        Obfuscate     = $Obfuscate
+        Persist       = $s.Persist
+        Trigger       = $s.Triggers
+        InstanceCount = $s.Instances
+        OutputFile    = $outFile
+    }
 
-    if ($payloadArg) { $invokeArgs += @('-Payload', $payloadArg) }
-    if ($payloadFileArg) { $invokeArgs += @('-PayloadFile', $payloadFileArg) }
+    if ($payloadArg)     { $invokeArgs['Payload']     = $payloadArg }
+    if ($payloadFileArg) { $invokeArgs['PayloadFile'] = $payloadFileArg }
 
     try {
-        & pwsh @invokeArgs 2>&1 | Out-Null
+        & $oneLiner @invokeArgs 2>&1 | Out-Null
         if (Test-Path $outFile) {
             $size = (Get-Item $outFile).Length
             Write-Host "         [OK] Generated: $outFile ($size bytes)" -ForegroundColor Green

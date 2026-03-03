@@ -7,7 +7,7 @@
 # 1. Clone ADS, then clone ops inside it
 git clone https://github.com/Qweary/Apparition-Delivery-System
 cd Apparition-Delivery-System
-git clone https://github.com/Qweary/ops ops
+git clone https://github.com/Qweary/ops
 
 # 2. Generate all showcase scenarios (dry run first)
 pwsh ops/red-team-showcase.ps1 -DryRun

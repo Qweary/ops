@@ -7,9 +7,9 @@
 
 ## What You Just Got
 
-You have a framework that hides persistent, encrypted PowerShell execution inside NTFS Alternate Data Streams — invisible to `dir`, invisible to File Explorer, and running clean against Windows Defender. A task fires at every logon, every boot, every 5 minutes on a randomized schedule. The files look like Windows cache artifacts. The task names look like Windows maintenance tasks. The streams? They don't appear at all unless you know the exact `Get-Item -Stream *` incantation.
+You have a framework that hides persistent, encrypted PowerShell execution inside NTFS Alternate Data Streams. It's invisible to dir and explorer, and it's running clean against Windows Defender as of this writing. A task fires at every logon, every boot, every 5 minutes on a randomized schedule (choices are yours). The files look like Windows cache artifacts. The task names look like Windows maintenance tasks. The streams don't appear at all unless you specifically look at the streams, and the zerowidth unicode option can make deleting it a pain.
 
-Every payload below is one generate-on-Kali + paste-on-Windows operation. No uploads. No staging servers. No compiled binaries.
+Every payload below is one generate-on-Kali + paste-on-Windows operation. No uploads. No staging servers (unless you use this as an agent waiting to be served powershell script). No compiled binaries.
 
 ---
 
@@ -160,9 +160,9 @@ Why ADS makes the blue team's job genuinely difficult. Not just hard — *differ
 The only way to find our streams is:
 - **`dir /r C:\ProgramData`** (cmd) — shows stream sizes as extra lines, easy to miss
 - **`Get-Item <file> -Stream *`** (PowerShell) — explicit stream enumeration
-- **Sysmon Event 15** (FileCreateStreamHash) — fires on ADS creation, needs Sysmon installed
+- **Sysmon Event 15** (FileCreateStreamHash) — fires on ADS creation (a normal event), needs Sysmon installed and careful monitoring
 
-In a competition environment with no Sysmon and blue team triaging 40 machines? They'll find most things first. The ADS is last.
+In a competition environment with blue team triaging 40 machines? They'll find most things first. The ADS is last.
 
 ---
 
@@ -187,6 +187,8 @@ Not impossible to find. Just genuinely time-consuming to distinguish.
 The payload is stored inside an NTFS ADS — a fork of a legitimate system file in `C:\ProgramData\Microsoft\Windows\WER\Cache`. The main file (the host) looks normal. Its content is whatever it was before we touched it. Our payload is in a named fork of that file. Standard file scanning doesn't see it.
 
 If `-Encrypt` is used, the ADS content is a DPAPI-encrypted blob. Even if someone finds the stream, they need the machine's DPAPI master key to read it.
+
+If ZeroWidthStream is used, they need the exact character used, or delete the entire file (hopfully we didn't attach to an important one and/or they made a backup first).
 
 ---
 
@@ -265,7 +267,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C2: Caps Lock Disco (MEME-005) — SYSTEM OK
 
-**What it does:** Blinks Caps Lock, Num Lock, and Scroll Lock LEDs in a rapid sequence for 60 seconds (time-limited for competition safety). Physical keyboard LEDs react even to SYSTEM context key events.
+**What it does:** Blinks Caps Lock, Num Lock, and Scroll Lock LEDs in a rapid sequence for 60 seconds (time-limited for competition safety). Physical keyboard LEDs react even to SYSTEM context key events. Might be my favorite.
 
 **Defender status:** VM-Validated CLEAN (2026-02-19, M2 test)
 
@@ -348,7 +350,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C5: OIIA Spinning Proof-of-Compromise (MEME-008) — Registry Persist Required
 
-**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format.
+**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format. (testing needed)
 
 ```bash
 cat > /tmp/meme008.ps1 << 'EOF'
@@ -380,7 +382,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C6: OIIA Desktop Graffiti (MEME-009) — SYSTEM OK
 
-**What it does:** Drops `OIIA_RED_TEAM_WAS_HERE.txt` on the Desktop, Public Desktop, and Temp — visible in File Explorer on next logon. Works from SYSTEM context (no interactive session needed). The files contain an ASCII cat and proof-of-compromise information.
+**What it does:** Drops `OIIA_RED_TEAM_WAS_HERE.txt` on the Desktop, Public Desktop, and Temp — visible in File Explorer on next logon. Works from SYSTEM context (no interactive session needed). The files contain an ASCII cat and proof-of-compromise information. (testing needed)
 
 ```bash
 cat > /tmp/meme009.ps1 << 'EOF'
@@ -408,7 +410,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-## Section D: Power Plays — Combo Scenarios
+## Section D: Power Plays — Combo Scenarios (testing needed)
 
 Multiple effects, one deployment. Choose your chaos level.
 

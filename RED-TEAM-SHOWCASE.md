@@ -45,7 +45,7 @@ Stop-Process -Name SecurityHealthSystray -Force -ErrorAction SilentlyContinue; R
 
 ---
 
-### A2: Invisible Admin Account (USR-002)
+### A2: Invisible Admin Account (USR-002) (remote login test needed, my local vm to vm not playing nice)
 
 **What it does:** Creates a local administrator account hidden from the Windows login screen and the User Accounts panel. `net user` reveals it if you know to look. Control Panel, Settings > Accounts, and the login screen don't.
 
@@ -92,7 +92,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-### A4: Full C2 Cradle — Persistent Download Beacon (C2-001)
+### A4: Full C2 Cradle — Persistent Download Beacon (C2-001) (saw connect callback, need to test payload delivery)
 
 **What it does:** Installs a persistent download-and-execute beacon that fires every 5 minutes. Points to your HTTP server. When your server returns a PowerShell script, it executes it. When it returns empty, nothing happens. Fire-and-forget command execution.
 
@@ -122,7 +122,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-### A5: Lateral Movement Prep — WinRM + PSRemoting (LAT-001 + LAT-002)
+### A5: Lateral Movement Prep — WinRM + PSRemoting (LAT-001 + LAT-002) (need to test on machine with winrm on a network)
 
 **What it does:** Opens WinRM and enables PowerShell Remoting with wildcard TrustedHosts. After this fires, you can `Enter-PSSession -ComputerName TARGET -Credential ...` from anywhere on the network.
 
@@ -327,7 +327,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C4: Wall of Notepads (MEME-002) — Registry Persist Required
 
-**What it does:** Opens 10 cascading Notepad windows with a red team message when the user logs on. Each window opens in the user's interactive session with your message front and center.
+**What it does:** Opens 10 cascading Notepad windows with a red team message when the user logs on. Each window opens in the user's interactive session with your message front and center. (pretty funny tbh, but it can really spam the windows)
 
 **Defender status:** VM-Validated CLEAN (2026-02-19, M4 test, with `-Persist registry`)
 
@@ -350,7 +350,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C5: OIIA Spinning Proof-of-Compromise (MEME-008) — Registry Persist Required
 
-**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format. (testing needed)
+**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format. (it interrupts a powershell session in an annoying way)
 
 ```bash
 cat > /tmp/meme008.ps1 << 'EOF'
@@ -382,7 +382,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C6: OIIA Desktop Graffiti (MEME-009) — SYSTEM OK
 
-**What it does:** Drops `OIIA_RED_TEAM_WAS_HERE.txt` on the Desktop, Public Desktop, and Temp — visible in File Explorer on next logon. Works from SYSTEM context (no interactive session needed). The files contain an ASCII cat and proof-of-compromise information. (testing needed)
+**What it does:** Drops `OIIA_RED_TEAM_WAS_HERE.txt` on the Desktop, Public Desktop, and Temp — visible in File Explorer on next logon. Works from SYSTEM context (no interactive session needed). The files contain an ASCII cat and proof-of-compromise information.
 
 ```bash
 cat > /tmp/meme009.ps1 << 'EOF'

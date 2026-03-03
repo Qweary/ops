@@ -488,20 +488,20 @@ foreach ($id in $toRun) {
     }
 
     # Build argument list
-    $args = @(
+    $invokeArgs = @(
         $oneLiner,
         '-Obfuscate', $Obfuscate,
         '-Persist', $s.Persist,
-        '-Trigger', "@('$($s.Triggers -join "','")')",
+        '-Trigger', ($s.Triggers -join ','),
         '-InstanceCount', $s.Instances,
         '-OutputFile', $outFile
     )
 
-    if ($payloadArg) { $args += @('-Payload', $payloadArg) }
-    if ($payloadFileArg) { $args += @('-PayloadFile', $payloadFileArg) }
+    if ($payloadArg) { $invokeArgs += @('-Payload', $payloadArg) }
+    if ($payloadFileArg) { $invokeArgs += @('-PayloadFile', $payloadFileArg) }
 
     try {
-        & pwsh @args 2>&1 | Out-Null
+        & pwsh @invokeArgs 2>&1 | Out-Null
         if (Test-Path $outFile) {
             $size = (Get-Item $outFile).Length
             Write-Host "         [OK] Generated: $outFile ($size bytes)" -ForegroundColor Green

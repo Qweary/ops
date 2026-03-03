@@ -15,13 +15,9 @@ This directory contains materials that are specific to offensive use. Keep acces
 
 - **Payload library:** `ops/payloads/ccdc-library.ps1`
 - **Meme payloads:** `ops/payloads/MEME-PAYLOADS.md`
-- **Competition strategy:** `ops/competition/COMPETITION-STRATEGY.md`
-- **Competition deployment guide:** `ops/competition/DEPLOYMENT-GUIDE.md`
-- **Competition quick reference:** `ops/competition/QUICK-REFERENCE.md`
-- **Bulk deploy script:** `ops/competition/generate-all-deployments.sh` (run from project root)
 
 ## Notes
 
-- `competition/generate-all-deployments.sh` must be run from the **project root**, not from inside `ops/competition/`
-- The competition package was generated against v2.3 — regenerate after VM validation of v2.4
 - `payloads/MEME-PAYLOADS.md` payloads are **unvalidated** — test before competition use
+- Depending on instance count, consider resource use.
+- Creativity highly encouraged.

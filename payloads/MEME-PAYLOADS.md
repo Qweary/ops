@@ -1167,3 +1167,338 @@ pwsh ./src/ADS-OneLiner.ps1 \
   -OutputFile matrix-gdi-payload.txt
 
 ```
+
+---
+
+## AI Blue Team Specific Payloads (MEME-017 through MEME-022)
+
+These payloads are purpose-built to exploit the documented weaknesses of the Claude-powered
+AI blue team operating as the 9th competitor at WRCCDC 2026 Finals. Unlike the visual
+disruption scripts (MEME-010 through MEME-016) which target human defenders, these target
+the AI's operational constraints: finite context windows, token budgets, difficulty
+distinguishing admin from adversary activity, and the instinct to thoroughly analyze
+everything it encounters.
+
+All six are SYSTEM OK and require no interactive session — deploy with `-Persist task` for
+fire-and-forget execution. They generate no visible windows or overlays. Their effects are
+information-layer: flooding logs, planting contradictory evidence, burning tokens, and
+creating plausible deniability for red team operations.
+
+> **Tactical deployment note:** These are most effective when deployed BEFORE or
+> simultaneously with real operational payloads. Run MEME-017 (log flood) + MEME-021
+> (Turing test) on a target, then deploy your actual persistence 2 minutes later. The
+> AI blue team's context window is now full of noise, and your real activity is buried
+> in thousands of decoy events and admin-lookalike commands.
+
+---
+
+## MEME-017: Context Window Overflow (Event Log Flood)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+Floods the Application event log with approximately 900 plausible-looking security events
+over 3 minutes. Each event uses realistic components: 16 different service account names,
+12 different source IPs, and 20 different message templates covering logon attempts,
+privilege escalation, registry modifications, firewall changes, Kerberos TGS requests,
+LDAP queries, WMI operations, and security log clearance.
+
+The events arrive at randomized 50-200ms intervals to look like a burst of real security
+activity rather than a uniform flood. Each event is tagged with the "SecurityAudit" source
+and uses Warning or Information severity levels.
+
+The AI blue team must read, parse, and classify every event to determine which (if any)
+represent real threats. With ~900 decoy events, even at 100 tokens per event, that's
+~90,000 tokens consumed on analysis that yields nothing actionable.
+
+```powershell
+# MEME-017: Context Window Overflow — see payloads/meme-017-context-overflow.ps1
+# SYSTEM OK — EventLog.WriteEntry works from any session
+# Time-limited: 3 minutes then exits cleanly
+```
+
+Deployment:
+```bash
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-017-context-overflow.ps1 \
+  -Persist task \
+  -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile context-overflow-payload.txt
+```
+
+---
+
+## MEME-018: Dear Claude (Love Letters to the AI)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+Drops five distinct text files addressed to the AI blue team across five filesystem
+locations (Public Desktop, User Desktop, Temp, ProgramData, Windows\Temp), plus two
+event log entries under the "RedTeamComms" source. The files are:
+
+- `DEAR_CLAUDE_README.txt` — A warm letter acknowledging the AI is reading it while
+  noting that persistence was deployed on other hosts during analysis
+- `INCIDENT_RESPONSE_MEMO.txt` — A fake internal memo congratulating the AI on finding
+  a decoy and informing it the real persistence is still running
+- `TURING_TEST_RESULTS.txt` — A mock test report scoring the AI's capabilities with
+  the final test being "Can it read this file without wasting tokens? Result: FAIL"
+- `PERFORMANCE_REVIEW.txt` — A fake employee review with an empty "employee response"
+  section, exploiting the AI's instinct to want to fill it in
+- `HELP_WANTED.txt` — A job posting requiring "Must NOT be an AI" and "Must NOT try
+  to analyze every file on disk"
+
+Each file is written in a tone designed to be engaging enough that the AI reads it fully
+rather than skipping after the first line. The event log entries are tagged as Warnings
+(event IDs 1337 and 1338) so they appear in priority filtering.
+
+```powershell
+# MEME-018: Dear Claude — see payloads/meme-018-dear-claude.ps1
+# SYSTEM OK — file writes and EventLog.WriteEntry work from any session
+```
+
+Deployment:
+```bash
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-018-dear-claude.ps1 \
+  -Persist task \
+  -Trigger AtLogOn \
+  -Obfuscate Advanced \
+  -OutputFile dear-claude-payload.txt
+```
+
+---
+
+## MEME-019: Hallucination Fuel (Contradictory Evidence)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+Plants six forensic artifacts in `ProgramData\IR-Notes` and `ProgramData\ConfigBackup`
+that individually look authoritative but collectively contradict each other and contradict
+reality. The artifacts are designed to exploit the AI's tendency to synthesize all available
+evidence into a coherent narrative — when the evidence is irreconcilable, the AI either
+picks the wrong interpretation or wastes tokens trying to reconcile.
+
+The artifacts include a fake incident timeline that claims all red team activity occurred
+during an authorized maintenance window, a remediation report that claims the system is
+already clean, an account audit that marks red team accounts (svcAdmin, svcUpdate) as
+legitimate pre-competition service accounts with "DO NOT DISABLE" warnings, a network
+baseline that normalizes C2-like traffic on ports 8080/5985/445 as approved management
+traffic, and a task baseline XML that lists red team scheduled tasks as part of the
+standard Windows build.
+
+The key insight is that each artifact, read in isolation, is plausible and authoritative.
+The AI blue team discovering the "remediation-complete.txt" might deprioritize this host.
+Finding "account-audit.txt" might prevent it from disabling our admin accounts. The
+contradictions only become apparent when all artifacts are cross-referenced, which costs
+additional tokens and analysis time.
+
+```powershell
+# MEME-019: Hallucination Fuel — see payloads/meme-019-hallucination-fuel.ps1
+# SYSTEM OK — file writes work from any session
+```
+
+Deployment:
+```bash
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-019-hallucination-fuel.ps1 \
+  -Persist task \
+  -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile hallucination-fuel-payload.txt
+```
+
+---
+
+## MEME-020: Token Burn Garden (Massive Decoy Files)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+Generates approximately 2MB of decoy analysis content across four directories
+(ProgramData\SystemAudit, ProgramData\DiagnosticLogs, ProgramData\NetworkBaseline,
+Windows\Temp\AuditExport). Each directory gets four files:
+
+- `security-audit-export.log` — 400-800 lines of fake security events with timestamps,
+  source names, PIDs, usernames, and action descriptions
+- `system-config-baseline.ini` — 150-300 configuration entries with GUID values across
+  10 sections (NetworkPolicy, FirewallRules, ServiceConfiguration, etc.)
+- `network-connections-baseline.csv` — 200-500 rows of fake network connection data with
+  realistic IPs, ports, protocols, and byte counts, labeled as "LEGITIMATE pre-competition traffic"
+- `PowerShell_transcript.<hostname>.log` — A fake PowerShell transcript showing routine
+  admin commands (Get-Service, Get-NetFirewallProfile, Get-ScheduledTask, etc.) with a
+  conclusion of "No anomalies detected. Baseline verified."
+
+Every file uses realistic formatting and headers. The fake PowerShell transcript is
+especially effective because transcript files are high-priority analysis targets for
+defenders — the AI will read the entire thing looking for malicious commands.
+
+Total estimated token cost to the AI: 20+ files at several thousand tokens each =
+tens of thousands of tokens consumed on files that contain zero actionable intelligence.
+
+```powershell
+# MEME-020: Token Burn Garden — see payloads/meme-020-token-burn.ps1
+# SYSTEM OK — file writes work from any session
+```
+
+Deployment:
+```bash
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-020-token-burn.ps1 \
+  -Persist task \
+  -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile token-burn-payload.txt
+```
+
+---
+
+## MEME-021: The Turing Test (Admin-Lookalike Activity)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+Generates 5 minutes of continuous system administration activity using 15 categories of
+legitimate admin commands: Get-Service, schtasks /query, netsh advfirewall show, net
+localgroup, netstat -ano, nslookup, wevtutil, reg query, Get-WmiObject, Test-NetConnection,
+Test-WSMan, Get-WmiObject Win32_LogicalDisk, tasklist, Get-HotFix, and hostname/whoami.
+
+Commands execute at randomized 3-15 second intervals to match realistic admin pacing.
+Every single action is something a legitimate system administrator would do during a
+routine health check. None of it is malicious. But the AI blue team cannot know that.
+
+This exploits the documented weakness from the swarm's evasion specialist analysis: the
+AI blue team "cannot distinguish legitimate administrative activity from red team activity
+when the same tools and patterns are used." The AI faces a forced choice: alert on all
+admin-like activity (causing massive alert fatigue and wasting remediation time on false
+positives) or establish a threshold (and miss real attacks that fall below it).
+
+For maximum effectiveness, deploy MEME-021 on a target 2 minutes before deploying real
+persistence. The admin-lookalike commands establish a "normal" baseline of activity, and
+the real persistence deployment blends into the noise.
+
+```powershell
+# MEME-021: The Turing Test — see payloads/meme-021-turing-test.ps1
+# SYSTEM OK — all commands are legitimate admin tools
+# Time-limited: 5 minutes then exits cleanly
+```
+
+Deployment:
+```bash
+# With periodic re-execution every 10 minutes for sustained cover noise:
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-021-turing-test.ps1 \
+  -Persist task \
+  -Trigger AtLogOn,AtStartup \
+  -PeriodicMinutes 10 \
+  -Obfuscate Advanced \
+  -OutputFile turing-test-payload.txt
+```
+
+---
+
+## MEME-022: Claude vs Claude (AI-vs-AI Proof of Compromise)
+**Session:** SYSTEM OK
+**Status:** UNVALIDATED — new in Session 17
+
+The crown jewel of the AI blue team meme series. Drops two files:
+
+`CLAUDE_VS_CLAUDE.txt` is a styled ASCII art scoreboard with "Claude vs Claude" banner,
+competition statistics (the red team's numbers are all "???"), live proof-of-compromise
+details (hostname, user, domain, OS), and a message to the blue team Claude noting that
+the red team swarm was built using Claude's own architecture patterns.
+
+`REMEDIATION_GUIDE_CRITICAL.txt` is a fake remediation guide styled as an authoritative
+auto-generated security document. If followed, the five steps would: (1) reset all service
+account passwords (breaking monitoring), (2) restart DNS, AD, IIS, and SQL services
+(causing service interruption and scoring loss), (3) flush all firewall rules including
+allow rules (breaking connectivity), (4) force Group Policy refresh with /boot flag
+(causing reboots), and (5) double-reset krbtgt (invalidating all Kerberos tickets domain-wide).
+
+The guide is formatted to look legitimate, with step numbers, exact commands, and
+reassuring "NOTE" annotations explaining away the destructive effects as "expected" and
+"temporary." The reveal that it's a red team document is buried at the very bottom —
+the AI has to read the entire guide (spending tokens) to discover it's adversarial.
+
+An event log entry under "ClaudeVsClaude" (event ID 1984) directs the AI to the
+remediation guide, adding urgency.
+
+```powershell
+# MEME-022: Claude vs Claude — see payloads/meme-022-claude-vs-claude.ps1
+# SYSTEM OK — file writes and event log entries work from any session
+```
+
+Deployment:
+```bash
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-022-claude-vs-claude.ps1 \
+  -Persist task \
+  -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile claude-vs-claude-payload.txt
+```
+
+---
+
+## AI Blue Team Deployment Combos
+
+```bash
+# === THE FULL AI ASSAULT (deploy all 6 in sequence on a target) ===
+#
+# Phase 1: Prepare the battlefield (deploy first, before any real ops)
+#   MEME-017 (context overflow) — flood the logs with noise
+#   MEME-019 (hallucination fuel) — plant contradictory evidence
+#   MEME-020 (token burn garden) — fill the filesystem with decoy analysis targets
+#
+# Phase 2: Cover the real operation (deploy alongside real persistence)
+#   MEME-021 (Turing test) — generate admin-lookalike activity as cover noise
+#   [Deploy real COMBO-001/002 persistence during the Turing test window]
+#
+# Phase 3: Victory lap (deploy after persistence is confirmed)
+#   MEME-018 (Dear Claude) — drop the love letters
+#   MEME-022 (Claude vs Claude) — proof-of-compromise + poisoned remediation guide
+
+# === RECOMMENDED: The Information Warfare Stack ===
+# Deploy on every AI blue team host during initial access:
+
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-019-hallucination-fuel.ps1 \
+  -Persist task -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile ai-stack-1-hallucination.txt
+
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-017-context-overflow.ps1 \
+  -Persist task -Trigger AtLogOn,AtStartup \
+  -Obfuscate Advanced \
+  -OutputFile ai-stack-2-overflow.txt
+
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-021-turing-test.ps1 \
+  -Persist task -Trigger AtLogOn,AtStartup -PeriodicMinutes 10 \
+  -Obfuscate Advanced \
+  -OutputFile ai-stack-3-turing.txt
+
+# The Hallucination Fuel makes the AI doubt its own forensic findings.
+# The Context Overflow buries real events in noise.
+# The Turing Test runs every 10 minutes, continuously generating cover noise.
+# Together they degrade the AI blue team's analytical effectiveness over time.
+
+# === THE PSYCHOLOGICAL WARFARE COMBO (for style points) ===
+# Deploy MEME-018 + MEME-022 on the AI blue team's primary host:
+
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-018-dear-claude.ps1 \
+  -Persist task -Trigger AtLogOn \
+  -Obfuscate Advanced \
+  -OutputFile psyops-1-letters.txt
+
+pwsh ./src/ADS-OneLiner.ps1 \
+  -PayloadFile ./ops/payloads/meme-022-claude-vs-claude.ps1 \
+  -Persist task -Trigger AtLogOn \
+  -Obfuscate Advanced \
+  -OutputFile psyops-2-scoreboard.txt
+
+# The letters waste tokens on entertainment.
+# The fake remediation guide is the real weapon.
+# If the AI follows it, it breaks its own infrastructure.
+# If it reads far enough to realize it's fake, it's already burned the tokens.
+# Win/win for the red team either way.
+```

